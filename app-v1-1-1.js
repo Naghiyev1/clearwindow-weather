@@ -26,8 +26,33 @@ function aqiAssessment(){const aq=Number(airCurrent().european_aqi),pm25=Number(
 function outdoorVerdict(){const rain=rainAssessment(),wind=windAssessment(),aqi=aqiAssessment();let score=100;if(rain.level==="bad")score-=35;if(rain.level==="medium")score-=18;if(wind.level==="bad")score-=35;if(wind.level==="medium")score-=18;if(aqi.level==="bad")score-=20;if(aqi.level==="medium")score-=10;const temp=Number(current().temperature_2m);if(temp<8||temp>32)score-=10;let label="Good window",tone="good",line="Looks reasonable to go outside.";if(score<45){label="Maybe stay flexible";tone="bad";line="Rain, wind or air quality may make outside plans annoying."}else if(score<70){label="Check before you go";tone="medium";line="Usable, but one factor could spoil it."}return{score:Math.max(0,Math.min(100,score)),label,tone,line,rain,wind,aqi}}
 function bestWindows(){const rows=upcomingHours(18).filter(x=>{const h=new Date(x.time).getHours();return h>=6&&h<=23});const scored=rows.map(x=>{const rainP=Math.min(40,Number(x.pop||0)*.4+Number(x.precip||0)*12),windP=Math.min(35,Number(x.wind||0)*.8+Number(x.gust||0)*.6),aqiP=Math.min(20,Number(x.aqi||airCurrent().european_aqi||0)*.2),humP=Number(x.humidity||0)>80?5:0;return{...x,score:Math.max(0,Math.min(100,Math.round(100-rainP-windP-aqiP-humP)))}});return{best:[...scored].sort((a,b)=>b.score-a.score).slice(0,3),worst:[...scored].sort((a,b)=>a.score-b.score).slice(0,3)}}
 function levelClass(l){return l==="bad"?"bad":l==="medium"?"medium":"good"}
-function render(){if(!document.querySelector('.app-shell'))renderShell();$$('.nav-btn').forEach(b=>b.classList.toggle('active',b.dataset.nav===state.section));if(state.loading){$('#app').innerHTML=`<section class="loading-card"><div class="loader"></div><h1>Checking the sky…</h1><p>Loading forecast, rain, wind and air quality for ${esc(locationTitle())}.</p></section>`;return}if(state.error){$('#app').innerHTML=`<section class="error-card"><h1>Weather failed</h1><p>${esc(state.error)}</p><button class="pill-btn active" data-action="reload">Try again</button></section>`;return}if(state.section==='today')renderToday();if(state.section==='hourly')renderHourly();if(state.section==='wind')renderWind();if(state.section==='air')renderAir();if(state.section==='locations')renderLocations()}
-function renderShell(){document.body.innerHTML=`<div class="app-shell"><header class="topbar"><div class="brand" data-nav="today"><div class="logo-mark">☔</div><div><strong>ClearWindow</strong><span>Rain · Wind · Air</span></div></div><nav class="nav"><button class="nav-btn active" data-nav="today">Today</button>
+function render(){
+  if(!document.querySelector(".app-shell")) renderShell();
+  $$(".nav-btn").forEach(b => b.classList.toggle("active", b.dataset.nav === state.section));
+
+  if(state.loading){
+    $("#app").innerHTML = `<section class="loading-card"><div class="loader"></div><h1>Checking the sky…</h1><p>Loading forecast, rain, wind and air quality for ${esc(locationTitle())}.</p></section>`;
+    return;
+  }
+
+  if(state.error){
+    $("#app").innerHTML = `<section class="error-card"><h1>Weather failed</h1><p>${esc(state.error)}</p><button class="pill-btn active" data-action="reload">Try again</button></section>`;
+    return;
+  }
+
+  if(state.section === "today") return renderToday();
+  if(state.section === "tomorrow") return renderTomorrow();
+  if(state.section === "weekly") return renderWeekly();
+  if(state.section === "hourly") return renderHourly();
+  if(state.section === "wind") return renderWind();
+  if(state.section === "air") return renderAir();
+  if(state.section === "locations") return renderLocations();
+
+  state.section = "today";
+  renderToday();
+}
+
+function renderShell(){document.body.innerHTML=`<div class="app-shell"><header class="topbar"><div class="brand" data-nav="today"><div class="logo-mark">☔</div><div><strong>ClearWindow</strong><span>Rain · Wind · Air · v${APP_VERSION}</span></div></div><nav class="nav"><button class="nav-btn active" data-nav="today">Today</button>
           <button class="nav-btn" data-nav="tomorrow">Tomorrow</button>
           <button class="nav-btn" data-nav="weekly">Weekly</button><button class="nav-btn" data-nav="hourly">Hourly</button><button class="nav-btn" data-nav="wind">Wind</button><button class="nav-btn" data-nav="air">Air</button><button class="nav-btn" data-nav="locations">Locations</button></nav></header><main id="app"></main></div>`}
 
