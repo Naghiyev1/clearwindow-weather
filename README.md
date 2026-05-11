@@ -24,3 +24,16 @@ Data source: Open-Meteo Forecast API, Air Quality API and Geocoding API. No API 
 ## Upload
 
 Upload all files to your repo root.
+
+
+## v1.1 — Tomorrow + Weekly + Visual Polish
+
+What changed:
+- Added Tomorrow view
+- Added Weekly 7-day outlook
+- Improved visual hierarchy and premium styling
+- Added weather icon orb for Tomorrow
+- Added daily outdoor score
+- Added rain / wind / AQI / UV summary per day
+- Added best and worst windows for tomorrow
+- Cache bumped to v1.1
