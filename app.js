@@ -23,7 +23,73 @@ function current(){return state.weather?.current||{}}function airCurrent(){retur
 function rainAssessment(){const next3=upcomingHours(4),next1=next3.slice(0,2);const maxPop3=Math.max(0,...next3.map(x=>Number(x.pop||0))),totalRain3=next3.reduce((s,x)=>s+Number(x.precip||0),0),maxPop1=Math.max(0,...next1.map(x=>Number(x.pop||0))),nowRain=Number(current().rain||0)+Number(current().showers||0)+Number(current().precipitation||0);let level="low",title="Low rain risk",detail="Looks mostly safe from rain in the next few hours.";if(nowRain>.1||totalRain3>=2||maxPop3>=75){level="bad";title="Rain risk is real";detail="Take an umbrella or delay going out if you hate surprise rain."}else if(totalRain3>=.3||maxPop3>=45||maxPop1>=35){level="medium";title="Possible rain window";detail="Not guaranteed, but enough risk to check before leaving."}return{level,title,detail,maxPop3,totalRain3,maxPop1,nowRain}}
 function windAssessment(row=current()){const wind=Number(row.wind_speed_10m??row.wind??0),gust=Number(row.wind_gusts_10m??row.gust??0),pain=Math.round(Math.min(100,wind*1.45+gust*1.25));let level="good",title="Wind is fine",detail="Wind should not dominate the day.";if(gust>=45||wind>=32){level="bad";title="Wind will be annoying";detail="Gusts are high enough to make walking, scooters or outdoor plans unpleasant."}else if(gust>=32||wind>=22){level="medium";title="Wind could annoy you";detail="Not a disaster, but gusts may make it feel worse than the temperature suggests."}return{level,title,detail,wind,gust,pain}}
 function aqiAssessment(){const aq=Number(airCurrent().european_aqi),pm25=Number(airCurrent().pm2_5),pm10=Number(airCurrent().pm10);let level="good",title="Air looks good",detail="Good enough for a normal walk or outdoor session.";if(aq>=75||pm25>=25||pm10>=50){level="bad";title="Air quality is poor";detail="Better to keep hard outdoor training short."}else if(aq>=50||pm25>=15||pm10>=35){level="medium";title="Air is okay, not perfect";detail="Fine for light activity, but not the cleanest air window."}return{level,title,detail,aq,pm25,pm10}}
-function outdoorVerdict(){const rain=rainAssessment(),wind=windAssessment(),aqi=aqiAssessment();let score=100;if(rain.level==="bad")score-=35;if(rain.level==="medium")score-=18;if(wind.level==="bad")score-=35;if(wind.level==="medium")score-=18;if(aqi.level==="bad")score-=20;if(aqi.level==="medium")score-=10;const temp=Number(current().temperature_2m);if(temp<8||temp>32)score-=10;let label="Good window",tone="good",line="Looks reasonable to go outside.";if(score<45){label="Maybe stay flexible";tone="bad";line="Rain, wind or air quality may make outside plans annoying."}else if(score<70){label="Check before you go";tone="medium";line="Usable, but one factor could spoil it."}return{score:Math.max(0,Math.min(100,score)),label,tone,line,rain,wind,aqi}}
+function outdoorVerdict(){
+  const rain = rainAssessment();
+  const wind = windAssessment();
+  const aqi = aqiAssessment();
+
+  let score = 100;
+  if(rain.level === "bad") score -= 35;
+  if(rain.level === "medium") score -= 18;
+  if(wind.level === "bad") score -= 35;
+  if(wind.level === "medium") score -= 18;
+  if(aqi.level === "bad") score -= 20;
+  if(aqi.level === "medium") score -= 10;
+
+  const temp = Number(current().temperature_2m);
+  if(temp < 8 || temp > 32) score -= 10;
+  score = Math.max(0, Math.min(100, Math.round(score)));
+
+  let label = "Good to go";
+  let tone = "good";
+  let line = "Looks fine for most outdoor plans.";
+  let advice = "You probably do not need to overthink it.";
+
+  if(rain.level === "bad"){
+    label = "Rain window ahead";
+    tone = "bad";
+    line = "There is enough rain risk to plan around the wet hours.";
+    advice = "Check the best window below before leaving.";
+  } else if(wind.level === "bad"){
+    label = "Wind will be annoying";
+    tone = "bad";
+    line = "The temperature may look fine, but gusts are the real problem.";
+    advice = "Good day to avoid exposed walks, scooters or outdoor training.";
+  } else if(aqi.level === "bad"){
+    label = "Air is not great";
+    tone = "bad";
+    line = "Air quality is the weak point today.";
+    advice = "Light outdoor time is fine, but hard training is not ideal.";
+  } else if(score < 45){
+    label = "Bad outdoor window";
+    tone = "bad";
+    line = "Rain, wind or air quality make this a poor time to go out.";
+    advice = "Wait for a better window if you can.";
+  } else if(rain.level === "medium"){
+    label = "Go between the dry windows";
+    tone = "medium";
+    line = "The day is usable, but rain timing matters.";
+    advice = "Use the best-window cards instead of trusting the whole day.";
+  } else if(wind.level === "medium"){
+    label = "Go, but watch the wind";
+    tone = "medium";
+    line = "The day is usable, but gusts may annoy you.";
+    advice = "If you hate wind, avoid the gustiest hours.";
+  } else if(aqi.level === "medium"){
+    label = "Fine, but air is average";
+    tone = "medium";
+    line = "Outdoor plans are okay, but the air is not especially clean.";
+    advice = "Better for walking than intense outdoor training.";
+  } else if(score < 70){
+    label = "Mostly fine";
+    tone = "medium";
+    line = "There is no major problem, but conditions are not perfect.";
+    advice = "Pick one of the better windows below.";
+  }
+
+  return { score, label, tone, line, advice, rain, wind, aqi };
+}
+
 function bestWindows(){const rows=upcomingHours(18).filter(x=>{const h=new Date(x.time).getHours();return h>=6&&h<=23});const scored=rows.map(x=>{const rainP=Math.min(40,Number(x.pop||0)*.4+Number(x.precip||0)*12),windP=Math.min(35,Number(x.wind||0)*.8+Number(x.gust||0)*.6),aqiP=Math.min(20,Number(x.aqi||airCurrent().european_aqi||0)*.2),humP=Number(x.humidity||0)>80?5:0;return{...x,score:Math.max(0,Math.min(100,Math.round(100-rainP-windP-aqiP-humP)))}});return{best:[...scored].sort((a,b)=>b.score-a.score).slice(0,3),worst:[...scored].sort((a,b)=>a.score-b.score).slice(0,3)}}
 function levelClass(l){return l==="bad"?"bad":l==="medium"?"medium":"good"}
 function render(){
@@ -115,8 +181,8 @@ function dayAssessment(offset=0){
     line = "Rain, gusts or air quality could make it a frustrating day.";
   } else if(score < 70){
     tone = "medium";
-    label = "Usable, but check timing";
-    line = "There should be workable windows, but not the whole day.";
+    label = "Pick the right window";
+    line = "There should be good hours, but do not treat the whole day as safe.";
   }
 
   const best = bestWindowsForRows(rows).best;
@@ -164,7 +230,84 @@ function metricPill(label,value,meta,tone=""){
 }
 
 
-function renderToday(){const v=outdoorVerdict(),c=current(),w=bestWindows();$('#app').innerHTML=`<section class="hero verdict-${v.tone}"><div><div class="eyebrow">${esc(locationTitle())} · v${APP_VERSION}</div><h1>${esc(v.label)}</h1><p>${esc(v.line)}</p></div><div class="score-ring ${v.tone}"><strong>${v.score}</strong><span>outdoor score</span></div></section><section class="current-strip"><div><span>Now</span><strong>${round(c.temperature_2m)}°C</strong><em>${esc(weatherText(c.weather_code))}</em></div><div><span>Feels</span><strong>${round(c.apparent_temperature)}°C</strong><em>${round(c.relative_humidity_2m)}% humidity</em></div><div><span>Rain now</span><strong>${round(v.rain.nowRain,1)} mm</strong><em>${v.rain.maxPop3}% max next 3h</em></div><div><span>Wind</span><strong>${round(v.wind.wind)} km/h</strong><em>gusts ${round(v.wind.gust)} km/h</em></div></section><section class="cards-three">${riskCard('Rain next 3h',v.rain.title,v.rain.detail,v.rain.level,`${v.rain.maxPop3}%`,`${round(v.rain.totalRain3,1)} mm expected`)}${riskCard('Wind annoyance',v.wind.title,v.wind.detail,v.wind.level,`${v.wind.pain}/100`,`gusts ${round(v.wind.gust)} km/h`)}${riskCard('Air quality',v.aqi.title,v.aqi.detail,v.aqi.level,`${round(v.aqi.aq)}`,`PM2.5 ${round(v.aqi.pm25,1)} · PM10 ${round(v.aqi.pm10,1)}`)}</section><section class="window-grid"><article class="window-card"><div class="eyebrow">Best outdoor windows</div>${w.best.map(windowRow).join('')||'<p>No window data yet.</p>'}</article><article class="window-card"><div class="eyebrow">Worst windows</div>${w.worst.map(windowRow).join('')||'<p>No window data yet.</p>'}</article></section><section class="source-card"><strong>Barcelona reality check</strong><p>ClearWindow puts rain probability, rain amount, gusts and air quality before temperature. In Barcelona, that is often what actually decides whether going outside feels good.</p></section>`}
+function renderToday(){
+  const v = outdoorVerdict();
+  const c = current();
+  const windows = bestWindows();
+  const bestOne = windows.best?.[0];
+  const worstOne = windows.worst?.[0];
+
+  $("#app").innerHTML = `
+    <section class="home-hero verdict-${v.tone}">
+      <div class="hero-copy">
+        <div class="eyebrow">${esc(locationTitle())} · ClearWindow v${APP_VERSION}</div>
+        <h1>${esc(v.label)}</h1>
+        <p>${esc(v.line)}</p>
+        <div class="hero-advice">${esc(v.advice)}</div>
+      </div>
+
+      <div class="today-orb ${v.tone}">
+        <span>${weatherIcon(c.weather_code)}</span>
+        <strong>${round(c.temperature_2m)}°</strong>
+        <em>feels ${round(c.apparent_temperature)}°</em>
+      </div>
+    </section>
+
+    <section class="decision-strip">
+      <div>
+        <span>Best window</span>
+        <strong>${bestOne ? hourLabel(bestOne.time) : "—"}</strong>
+        <em>${bestOne ? `score ${bestOne.score} · rain ${round(bestOne.pop)}%` : "No window data yet"}</em>
+      </div>
+      <div>
+        <span>Watch out</span>
+        <strong>${worstOne ? hourLabel(worstOne.time) : "—"}</strong>
+        <em>${worstOne ? `gust ${round(worstOne.gust)} km/h · rain ${round(worstOne.pop)}%` : "No risk window yet"}</em>
+      </div>
+      <div>
+        <span>Comfort</span>
+        <strong>${v.score}/100</strong>
+        <em>rain · wind · air combined</em>
+      </div>
+    </section>
+
+    <section class="main-risk-grid">
+      ${mainRiskCard("Rain", v.rain.level, `${v.rain.maxPop3}%`, "chance next 3h", v.rain.title, v.rain.detail)}
+      ${mainRiskCard("Wind", v.wind.level, `${round(v.wind.gust)} km/h`, "strongest gusts now", v.wind.title, v.wind.detail)}
+      ${mainRiskCard("Air", v.aqi.level, `${round(v.aqi.aq)}`, "European AQI", v.aqi.title, v.aqi.detail)}
+    </section>
+
+    <section class="window-grid refined">
+      <article class="window-card premium">
+        <div class="eyebrow">Best times today</div>
+        ${windows.best.map(windowRow).join("") || "<p>No window data yet.</p>"}
+      </article>
+      <article class="window-card premium">
+        <div class="eyebrow">Avoid if possible</div>
+        ${windows.worst.map(windowRow).join("") || "<p>No window data yet.</p>"}
+      </article>
+    </section>
+
+    <section class="source-card calm">
+      <strong>What this page is trying to answer</strong>
+      <p>Not “what is the weather?” but “when can I go outside without rain, annoying wind or bad air ruining it?”</p>
+    </section>
+  `;
+}
+
+function mainRiskCard(label, level, big, meta, title, detail){
+  return `<article class="main-risk-card ${levelClass(level)}">
+    <div class="risk-icon">${label === "Rain" ? "🌧️" : label === "Wind" ? "💨" : "🌫️"}</div>
+    <div>
+      <div class="eyebrow">${esc(label)}</div>
+      <strong>${esc(big)}</strong>
+      <span>${esc(meta)}</span>
+      <h2>${esc(title)}</h2>
+      <p>${esc(detail)}</p>
+    </div>
+  </article>`;
+}
+
 function riskCard(label,title,detail,level,big,meta){return `<article class="risk-card ${levelClass(level)}"><div class="eyebrow">${esc(label)}</div><strong>${esc(big)}</strong><h2>${esc(title)}</h2><p>${esc(detail)}</p><span>${esc(meta)}</span></article>`}
 function windowRow(x){const level=x.score<45?'bad':x.score<70?'medium':'good';return `<div class="window-row ${level}"><div><strong>${hourLabel(x.time)}</strong><span>${esc(weatherText(x.code))}</span></div><em>${x.score}</em><small>rain ${round(x.pop)}% · gust ${round(x.gust)} km/h</small></div>`}
 
