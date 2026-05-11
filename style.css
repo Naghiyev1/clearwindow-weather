@@ -234,3 +234,23 @@ body{
     font-size:40px;
   }
 }
+
+
+/* v1.1.1 route + style verification */
+.brand span{
+  color:#9de7ff;
+}
+.hero{
+  border-color:rgba(157,231,255,.22);
+}
+.hero h1{
+  text-shadow:0 12px 55px rgba(32,170,227,.18);
+}
+.nav-btn.active{
+  box-shadow:0 10px 34px rgba(32,170,227,.20);
+}
+.page-head.weekly-head{
+  background:
+    radial-gradient(circle at 18% 20%,rgba(32,170,227,.18),transparent 42%),
+    linear-gradient(135deg,rgba(255,255,255,.12),rgba(255,255,255,.045));
+}
