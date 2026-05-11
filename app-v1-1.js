@@ -27,10 +27,219 @@ function outdoorVerdict(){const rain=rainAssessment(),wind=windAssessment(),aqi=
 function bestWindows(){const rows=upcomingHours(18).filter(x=>{const h=new Date(x.time).getHours();return h>=6&&h<=23});const scored=rows.map(x=>{const rainP=Math.min(40,Number(x.pop||0)*.4+Number(x.precip||0)*12),windP=Math.min(35,Number(x.wind||0)*.8+Number(x.gust||0)*.6),aqiP=Math.min(20,Number(x.aqi||airCurrent().european_aqi||0)*.2),humP=Number(x.humidity||0)>80?5:0;return{...x,score:Math.max(0,Math.min(100,Math.round(100-rainP-windP-aqiP-humP)))}});return{best:[...scored].sort((a,b)=>b.score-a.score).slice(0,3),worst:[...scored].sort((a,b)=>a.score-b.score).slice(0,3)}}
 function levelClass(l){return l==="bad"?"bad":l==="medium"?"medium":"good"}
 function render(){if(!document.querySelector('.app-shell'))renderShell();$$('.nav-btn').forEach(b=>b.classList.toggle('active',b.dataset.nav===state.section));if(state.loading){$('#app').innerHTML=`<section class="loading-card"><div class="loader"></div><h1>Checking the sky…</h1><p>Loading forecast, rain, wind and air quality for ${esc(locationTitle())}.</p></section>`;return}if(state.error){$('#app').innerHTML=`<section class="error-card"><h1>Weather failed</h1><p>${esc(state.error)}</p><button class="pill-btn active" data-action="reload">Try again</button></section>`;return}if(state.section==='today')renderToday();if(state.section==='hourly')renderHourly();if(state.section==='wind')renderWind();if(state.section==='air')renderAir();if(state.section==='locations')renderLocations()}
-function renderShell(){document.body.innerHTML=`<div class="app-shell"><header class="topbar"><div class="brand" data-nav="today"><div class="logo-mark">☔</div><div><strong>ClearWindow</strong><span>Rain · Wind · Air</span></div></div><nav class="nav"><button class="nav-btn active" data-nav="today">Today</button><button class="nav-btn" data-nav="hourly">Hourly</button><button class="nav-btn" data-nav="wind">Wind</button><button class="nav-btn" data-nav="air">Air</button><button class="nav-btn" data-nav="locations">Locations</button></nav></header><main id="app"></main></div>`}
+function renderShell(){document.body.innerHTML=`<div class="app-shell"><header class="topbar"><div class="brand" data-nav="today"><div class="logo-mark">☔</div><div><strong>ClearWindow</strong><span>Rain · Wind · Air</span></div></div><nav class="nav"><button class="nav-btn active" data-nav="today">Today</button>
+          <button class="nav-btn" data-nav="tomorrow">Tomorrow</button>
+          <button class="nav-btn" data-nav="weekly">Weekly</button><button class="nav-btn" data-nav="hourly">Hourly</button><button class="nav-btn" data-nav="wind">Wind</button><button class="nav-btn" data-nav="air">Air</button><button class="nav-btn" data-nav="locations">Locations</button></nav></header><main id="app"></main></div>`}
+
+function dateKeyFromOffset(offset){
+  const d = new Date();
+  d.setDate(d.getDate() + offset);
+  return d.toISOString().slice(0,10);
+}
+
+function hourlyForDate(offset){
+  const key = dateKeyFromOffset(offset);
+  return hourlyRows().filter(x => String(x.time).startsWith(key));
+}
+
+function dailyRows(){
+  if(!state.weather?.daily?.time) return [];
+  const d = state.weather.daily;
+  return d.time.map((time,i) => ({
+    time,
+    code: d.weather_code?.[i],
+    tempMax: d.temperature_2m_max?.[i],
+    tempMin: d.temperature_2m_min?.[i],
+    precip: d.precipitation_sum?.[i],
+    pop: d.precipitation_probability_max?.[i],
+    wind: d.wind_speed_10m_max?.[i],
+    gust: d.wind_gusts_10m_max?.[i],
+    uv: d.uv_index_max?.[i],
+    sunrise: d.sunrise?.[i],
+    sunset: d.sunset?.[i]
+  }));
+}
+
+function dayAssessment(offset=0){
+  const rows = hourlyForDate(offset);
+  const daily = dailyRows()[offset] || {};
+  const aqRows = rows.map(x => Number(x.aqi || 0)).filter(Boolean);
+  const avgAqi = aqRows.length ? Math.round(aqRows.reduce((a,b)=>a+b,0)/aqRows.length) : Number(airCurrent().european_aqi || 0);
+
+  const maxPop = Number(daily.pop ?? Math.max(0, ...rows.map(x => Number(x.pop || 0))));
+  const totalRain = Number(daily.precip ?? rows.reduce((s,x)=>s+Number(x.precip||0),0));
+  const maxWind = Number(daily.wind ?? Math.max(0, ...rows.map(x => Number(x.wind || 0))));
+  const maxGust = Number(daily.gust ?? Math.max(0, ...rows.map(x => Number(x.gust || 0))));
+  const uv = Number(daily.uv ?? Math.max(0, ...rows.map(x => Number(x.uv || 0))));
+
+  let score = 100;
+  score -= Math.min(35, maxPop * 0.32 + totalRain * 5);
+  score -= Math.min(35, maxWind * 0.65 + maxGust * 0.45);
+  score -= Math.min(18, avgAqi * 0.18);
+  if(uv >= 7) score -= 7;
+
+  score = Math.max(0, Math.min(100, Math.round(score)));
+
+  let tone = "good";
+  let label = "Good outdoor day";
+  let line = "Looks mostly usable for outdoor plans.";
+
+  if(score < 45){
+    tone = "bad";
+    label = "Annoying weather risk";
+    line = "Rain, gusts or air quality could make it a frustrating day.";
+  } else if(score < 70){
+    tone = "medium";
+    label = "Usable, but check timing";
+    line = "There should be workable windows, but not the whole day.";
+  }
+
+  const best = bestWindowsForRows(rows).best;
+  const worst = bestWindowsForRows(rows).worst;
+
+  return { score, tone, label, line, maxPop, totalRain, maxWind, maxGust, avgAqi, uv, daily, rows, best, worst };
+}
+
+function bestWindowsForRows(rows){
+  const usable = rows.filter(x => {
+    const h = new Date(x.time).getHours();
+    return h >= 6 && h <= 23;
+  });
+  const scored = usable.map(x => {
+    const rainPenalty = Math.min(40, Number(x.pop || 0) * 0.4 + Number(x.precip || 0) * 12);
+    const windPenalty = Math.min(35, Number(x.wind || 0) * 0.8 + Number(x.gust || 0) * 0.6);
+    const aqiPenalty = Math.min(20, Number(x.aqi || airCurrent().european_aqi || 0) * 0.2);
+    const humidityPenalty = Number(x.humidity || 0) > 80 ? 5 : 0;
+    const score = Math.round(100 - rainPenalty - windPenalty - aqiPenalty - humidityPenalty);
+    return { ...x, score: Math.max(0, Math.min(100, score)) };
+  });
+  return {
+    best: [...scored].sort((a,b) => b.score - a.score).slice(0,3),
+    worst: [...scored].sort((a,b) => a.score - b.score).slice(0,3)
+  };
+}
+
+function weatherIcon(code){
+  code = Number(code);
+  if([0,1].includes(code)) return "☀️";
+  if([2].includes(code)) return "⛅";
+  if([3,45,48].includes(code)) return "☁️";
+  if([51,53,55,61,63,65,80,81,82].includes(code)) return "🌧️";
+  if([95,96,99].includes(code)) return "⛈️";
+  if([71,73,75,77,85,86].includes(code)) return "❄️";
+  return "🌤️";
+}
+
+function metricPill(label,value,meta,tone=""){
+  return `<div class="metric-pill ${tone}">
+    <span>${esc(label)}</span>
+    <strong>${esc(value)}</strong>
+    <em>${esc(meta)}</em>
+  </div>`;
+}
+
+
 function renderToday(){const v=outdoorVerdict(),c=current(),w=bestWindows();$('#app').innerHTML=`<section class="hero verdict-${v.tone}"><div><div class="eyebrow">${esc(locationTitle())} · v${APP_VERSION}</div><h1>${esc(v.label)}</h1><p>${esc(v.line)}</p></div><div class="score-ring ${v.tone}"><strong>${v.score}</strong><span>outdoor score</span></div></section><section class="current-strip"><div><span>Now</span><strong>${round(c.temperature_2m)}°C</strong><em>${esc(weatherText(c.weather_code))}</em></div><div><span>Feels</span><strong>${round(c.apparent_temperature)}°C</strong><em>${round(c.relative_humidity_2m)}% humidity</em></div><div><span>Rain now</span><strong>${round(v.rain.nowRain,1)} mm</strong><em>${v.rain.maxPop3}% max next 3h</em></div><div><span>Wind</span><strong>${round(v.wind.wind)} km/h</strong><em>gusts ${round(v.wind.gust)} km/h</em></div></section><section class="cards-three">${riskCard('Rain next 3h',v.rain.title,v.rain.detail,v.rain.level,`${v.rain.maxPop3}%`,`${round(v.rain.totalRain3,1)} mm expected`)}${riskCard('Wind annoyance',v.wind.title,v.wind.detail,v.wind.level,`${v.wind.pain}/100`,`gusts ${round(v.wind.gust)} km/h`)}${riskCard('Air quality',v.aqi.title,v.aqi.detail,v.aqi.level,`${round(v.aqi.aq)}`,`PM2.5 ${round(v.aqi.pm25,1)} · PM10 ${round(v.aqi.pm10,1)}`)}</section><section class="window-grid"><article class="window-card"><div class="eyebrow">Best outdoor windows</div>${w.best.map(windowRow).join('')||'<p>No window data yet.</p>'}</article><article class="window-card"><div class="eyebrow">Worst windows</div>${w.worst.map(windowRow).join('')||'<p>No window data yet.</p>'}</article></section><section class="source-card"><strong>Barcelona reality check</strong><p>ClearWindow puts rain probability, rain amount, gusts and air quality before temperature. In Barcelona, that is often what actually decides whether going outside feels good.</p></section>`}
 function riskCard(label,title,detail,level,big,meta){return `<article class="risk-card ${levelClass(level)}"><div class="eyebrow">${esc(label)}</div><strong>${esc(big)}</strong><h2>${esc(title)}</h2><p>${esc(detail)}</p><span>${esc(meta)}</span></article>`}
 function windowRow(x){const level=x.score<45?'bad':x.score<70?'medium':'good';return `<div class="window-row ${level}"><div><strong>${hourLabel(x.time)}</strong><span>${esc(weatherText(x.code))}</span></div><em>${x.score}</em><small>rain ${round(x.pop)}% · gust ${round(x.gust)} km/h</small></div>`}
+
+function renderTomorrow(){
+  const d = dayAssessment(1);
+  const day = d.daily || {};
+  $("#app").innerHTML = `
+    <section class="hero tomorrow-hero verdict-${d.tone}">
+      <div>
+        <div class="eyebrow">${esc(locationTitle())} · ${dayLabel(day.time || dateKeyFromOffset(1))}</div>
+        <h1>${esc(d.label)}</h1>
+        <p>${esc(d.line)}</p>
+      </div>
+      <div class="weather-orb ${d.tone}">
+        <span>${weatherIcon(day.code)}</span>
+        <strong>${round(day.tempMax)}°</strong>
+        <em>${round(day.tempMin)}° min</em>
+      </div>
+    </section>
+
+    <section class="mood-panel">
+      <div>
+        <span>Tomorrow score</span>
+        <strong>${d.score}</strong>
+        <em>outdoor usability</em>
+      </div>
+      ${metricPill("Rain", `${round(d.maxPop)}%`, `${round(d.totalRain,1)} mm`, d.maxPop >= 65 ? "bad" : d.maxPop >= 35 ? "medium" : "good")}
+      ${metricPill("Wind", `${round(d.maxWind)} km/h`, `gust ${round(d.maxGust)} km/h`, d.maxGust >= 45 ? "bad" : d.maxGust >= 32 ? "medium" : "good")}
+      ${metricPill("AQI", `${round(d.avgAqi)}`, `European AQI`, d.avgAqi >= 75 ? "bad" : d.avgAqi >= 50 ? "medium" : "good")}
+      ${metricPill("UV", `${round(d.uv,1)}`, `max index`, d.uv >= 7 ? "bad" : d.uv >= 4 ? "medium" : "good")}
+    </section>
+
+    <section class="window-grid">
+      <article class="window-card premium">
+        <div class="eyebrow">Best times tomorrow</div>
+        ${d.best.map(windowRow).join("") || "<p>No hourly window data yet.</p>"}
+      </article>
+      <article class="window-card premium">
+        <div class="eyebrow">Avoid if possible</div>
+        ${d.worst.map(windowRow).join("") || "<p>No hourly window data yet.</p>"}
+      </article>
+    </section>
+
+    <section class="page-head small">
+      <div><h1>Tomorrow by hour</h1><p>A compact view of the hours that matter most.</p></div>
+    </section>
+    <section class="hourly-list compact">
+      ${d.rows.filter(x => {
+        const h = new Date(x.time).getHours();
+        return h >= 7 && h <= 23;
+      }).map(hourCard).join("")}
+    </section>
+  `;
+}
+
+function renderWeekly(){
+  const days = dailyRows().map((day,i) => ({ ...day, assessment: dayAssessment(i) }));
+  $("#app").innerHTML = `
+    <section class="page-head weekly-head">
+      <div>
+        <div class="eyebrow">${esc(locationTitle())}</div>
+        <h1>Weekly outlook</h1>
+        <p>Not just temperature. Rain risk, gusts, air and outdoor usability for the next 7 days.</p>
+      </div>
+      <button class="pill-btn" data-action="reload">Refresh</button>
+    </section>
+
+    <section class="weekly-grid">
+      ${days.map(weeklyCard).join("")}
+    </section>
+
+    <section class="source-card">
+      <strong>How to read this:</strong>
+      <p>The score is intentionally practical, not meteorological purity. Heavy rain risk, strong gusts and worse air quality reduce the outdoor score more than temperature.</p>
+    </section>
+  `;
+}
+
+function weeklyCard(day){
+  const a = day.assessment;
+  return `<article class="week-card ${a.tone}">
+    <div class="week-top">
+      <div>
+        <span>${dayLabel(day.time)}</span>
+        <strong>${weatherIcon(day.code)} ${round(day.tempMax)}°</strong>
+        <em>${round(day.tempMin)}° min · ${esc(weatherText(day.code))}</em>
+      </div>
+      <div class="week-score">${a.score}</div>
+    </div>
+    <div class="week-metrics">
+      <div><span>Rain</span><strong>${round(a.maxPop)}%</strong><em>${round(a.totalRain,1)} mm</em></div>
+      <div><span>Gust</span><strong>${round(a.maxGust)}</strong><em>km/h</em></div>
+      <div><span>AQI</span><strong>${round(a.avgAqi)}</strong><em>EU AQI</em></div>
+      <div><span>UV</span><strong>${round(a.uv,1)}</strong><em>max</em></div>
+    </div>
+    <p>${esc(a.label)}</p>
+  </article>`;
+}
+
+
 function renderHourly(){const rows=upcomingHours(24);$('#app').innerHTML=`<section class="page-head"><div><h1>Hourly reality check</h1><p>Rain probability, rain amount, gusts and air quality by hour.</p></div><button class="pill-btn" data-action="reload">Refresh</button></section><section class="hourly-list">${rows.map(hourCard).join('')}</section>`}
 function hourCard(x){const wind=windAssessment({wind_speed_10m:x.wind,wind_gusts_10m:x.gust}),rainLevel=Number(x.pop||0)>=65||Number(x.precip||0)>=1?'bad':Number(x.pop||0)>=35||Number(x.precip||0)>0?'medium':'good';return `<article class="hour-card"><div class="hour-main"><strong>${hourLabel(x.time)}</strong><span>${esc(weatherText(x.code))}</span></div><div class="hour-metric"><span>Temp</span><strong>${round(x.temp)}°</strong><em>feels ${round(x.feels)}°</em></div><div class="hour-metric ${rainLevel}"><span>Rain</span><strong>${round(x.pop)}%</strong><em>${round(x.precip,1)} mm</em></div><div class="hour-metric ${wind.level}"><span>Wind</span><strong>${round(x.wind)}</strong><em>gust ${round(x.gust)}</em></div><div class="hour-metric"><span>AQI</span><strong>${round(x.aqi)}</strong><em>PM2.5 ${round(x.pm25,1)}</em></div></article>`}
 function renderWind(){const rows=upcomingHours(24),worst=[...rows].sort((a,b)=>Number(b.gust||0)-Number(a.gust||0)).slice(0,6),cw=windAssessment();$('#app').innerHTML=`<section class="hero verdict-${cw.level}"><div><div class="eyebrow">Wind focus</div><h1>${esc(cw.title)}</h1><p>${esc(cw.detail)}</p></div><div class="score-ring ${cw.level}"><strong>${cw.pain}</strong><span>wind pain</span></div></section><section class="wind-scale"><div><strong>0–20</strong><span>Fine</span></div><div><strong>20–40</strong><span>Noticeable</span></div><div><strong>40–60</strong><span>Annoying</span></div><div><strong>60+</strong><span>Wind bully mode</span></div></section><section class="page-head small"><div><h1>Gust watch</h1><p>Gusts usually explain why a “not too windy” day still feels annoying.</p></div></section><section class="hourly-list">${worst.map(x=>{const w=windAssessment({wind_speed_10m:x.wind,wind_gusts_10m:x.gust});return `<article class="hour-card"><div class="hour-main"><strong>${hourLabel(x.time)}</strong><span>${dayLabel(x.time)}</span></div><div class="hour-metric ${w.level}"><span>Wind</span><strong>${round(x.wind)}</strong><em>km/h</em></div><div class="hour-metric ${w.level}"><span>Gust</span><strong>${round(x.gust)}</strong><em>km/h</em></div><div class="hour-metric ${w.level}"><span>Pain</span><strong>${w.pain}</strong><em>/100</em></div><div class="hour-metric"><span>Rain</span><strong>${round(x.pop)}%</strong><em>${round(x.precip,1)} mm</em></div></article>`}).join('')}</section>`}
