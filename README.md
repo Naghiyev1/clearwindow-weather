@@ -37,3 +37,16 @@ What changed:
 - Added rain / wind / AQI / UV summary per day
 - Added best and worst windows for tomorrow
 - Cache bumped to v1.1
+
+
+## v1.1.1 — Tomorrow/Weekly Route + Style Fix
+
+Fixes:
+- Tomorrow nav now renders Tomorrow view
+- Weekly nav now renders Weekly view
+- Explicit render routing
+- New versioned filenames: `app-v1-1-1.js`, `style-v1-1-1.css`
+- Service worker cache bumped to `clearwindow-v1-1-1`
+- Brand now shows version number so you can confirm the new build is live
+
+If nothing changes after upload, clear site data for the GitHub Pages URL.
